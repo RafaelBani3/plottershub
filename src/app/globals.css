@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Base Workspace Canvas: Light Gray Page Background (#F4F4F5 / #F8F9FA) */
+    --background: 240 5% 96%;
+    --foreground: 240 10% 3.9%;
+
+    /* Standard Card & Component Surface: Pure White Cards (#FFFFFF) */
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --surface: 0 0% 100%;
+    --surface-foreground: 240 10% 3.9%;
+
+    /* Elevated Surface: Dropdowns, Dialogs, Popovers (#FFFFFF with shadow-sm) */
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --elevated: 0 0% 100%;
+    --elevated-foreground: 240 10% 3.9%;
+
+    /* Hover Surface (#F4F4F5) */
+    --hover: 240 4.8% 95.9%;
+
+    /* Primary Action: High-Contrast Neutral (Zinc 900 on Zinc 50) */
+    --primary: 240 10% 3.9%;
+    --primary-foreground: 0 0% 98%;
+
+    /* Secondary Action: Surface / Border */
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 10% 3.9%;
+
+    /* Muted Text and Backgrounds */
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+
+    /* Accent */
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 10% 3.9%;
+
+    /* Destructive & Semantic Status */
+    --destructive: 347 90% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --positive: 160 84% 39%;
+    --positive-foreground: 0 0% 98%;
+    --negative: 347 90% 60%;
+    --negative-foreground: 0 0% 98%;
+
+    /* Platform & Focus */
+    --youtube: 0 100% 50%;
+    --focus: 217 91% 60%;
+    --ring: 217 91% 60%;
+
+    /* Subtle 1px Borders: Restrained perimeters */
+    --border: 240 5.9% 90%;
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-strong: rgba(0, 0, 0, 0.16);
+    --input: 240 5.9% 90%;
+
+    /* Border Radii: Strict 4px / 6px (default) / 8px */
+    --radius-sm: 0.25rem;  /* 4px */
+    --radius: 0.375rem;    /* 6px (default) */
+    --radius-lg: 0.5rem;   /* 8px */
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 240 4.8% 95.9%;
+
+    --card: 240 6% 7.1%;
+    --card-foreground: 240 4.8% 95.9%;
+    --surface: 240 6% 7.1%;
+    --surface-foreground: 240 4.8% 95.9%;
+
+    --popover: 240 5.3% 10.2%;
+    --popover-foreground: 240 4.8% 95.9%;
+    --elevated: 240 5.3% 10.2%;
+    --elevated-foreground: 240 4.8% 95.9%;
+
+    --hover: 240 5.2% 16.1%;
+
+    --primary: 240 4.8% 95.9%;
+    --primary-foreground: 240 10% 3.9%;
+
+    --secondary: 240 5.2% 16.1%;
+    --secondary-foreground: 240 4.8% 95.9%;
+
+    --muted: 240 5.2% 16.1%;
+    --muted-foreground: 240 5% 64.9%;
+
+    --accent: 240 5.2% 16.1%;
+    --accent-foreground: 240 4.8% 95.9%;
+
+    --destructive: 347 90% 60%;
+    --destructive-foreground: 240 4.8% 95.9%;
+    --positive: 160 84% 39%;
+    --positive-foreground: 240 4.8% 95.9%;
+    --negative: 347 90% 60%;
+    --negative-foreground: 240 4.8% 95.9%;
+
+    --youtube: 0 100% 50%;
+    --focus: 217 91% 60%;
+    --ring: 217 91% 60%;
+
+    --border: 240 5.2% 16.1%;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --input: 240 5.2% 16.1%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Operational Utility Classes */
+.border-subtle {
+  border-color: var(--border-subtle);
+}
+
+.border-strong {
+  border-color: var(--border-strong);
+}
+
+/* Custom Scrollbar - Compact & Unobtrusive */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}

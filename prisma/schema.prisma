@@ -1,0 +1,611 @@
+// ==============================================================================
+// Plottershub - Canonical Database Schema
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  ANALYST
+  VIEWER
+}
+
+enum SocialAccountStatus {
+  CONNECTED
+  SYNCING
+  HEALTHY
+  WARNING
+  TOKEN_EXPIRED
+  REAUTH_REQUIRED
+  API_ERROR
+  RATE_LIMITED
+  DISCONNECTED
+}
+
+enum ContentStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum ContentPlatformStatus {
+  PENDING
+  SCHEDULED
+  PROCESSING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PublishingStatus {
+  DRAFT
+  QUEUED
+  UPLOADING
+  UPLOADED
+  PROCESSING
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+  RECONCILING
+}
+
+enum MetricGranularity {
+  DAILY
+  AGGREGATED
+}
+
+enum MetricSource {
+  DATA_API
+  ANALYTICS_API
+  REPORTING_API
+  ESTIMATED
+}
+
+// ------------------------------------------------------------------------------
+// Core User, Session & Workspaces (Multi-Tenant RBAC)
+// ------------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  sessions        Session[]
+  memberships     WorkspaceMember[]
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
+  auditLogs       AuditLog[]
+  oauthAttempts   OAuthAuthorizationAttempt[]
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  sessionToken String   @unique @map("session_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner          User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members        WorkspaceMember[]
+  socialAccounts SocialAccount[]
+  contents       Content[]
+  categories     Category[]
+  auditLogs      AuditLog[]
+  oauthAttempts  OAuthAuthorizationAttempt[]
+  analyticsObservations AnalyticsObservation[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole @default(VIEWER)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  userId      String?  @map("user_id")
+  action      String   @map("action")
+  resource    String   @map("resource")
+  resourceId  String?  @map("resource_id")
+  details     Json?    @map("details")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// ------------------------------------------------------------------------------
+// Social Account & Token Models
+// ------------------------------------------------------------------------------
+
+model SocialPlatform {
+  id        String   @id @default(cuid())
+  code      String   @unique // "TIKTOK", "INSTAGRAM", "YOUTUBE"
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  accounts SocialAccount[]
+
+  @@map("social_platforms")
+}
+
+model SocialAccount {
+  id                String              @id @default(cuid())
+  workspaceId       String              @map("workspace_id")
+  platformId        String              @map("platform_id")
+  externalAccountId String              @map("external_account_id")
+  username          String
+  displayName       String?             @map("display_name")
+  avatarUrl         String?             @map("avatar_url")
+  status            SocialAccountStatus @default(CONNECTED)
+  lastSyncedAt      DateTime?           @map("last_synced_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  workspace       Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  platform        SocialPlatform           @relation(fields: [platformId], references: [id], onDelete: Restrict)
+  token           SocialToken?
+  contentPlatforms ContentPlatform[]
+  contentSnapshots ContentMetricSnapshot[]
+  accountSnapshots AccountMetricSnapshot[]
+  audienceSnapshots AudienceMetricSnapshot[]
+  analyticsObservations AnalyticsObservation[]
+  syncJobs        SyncJob[]
+
+  @@unique([workspaceId, platformId, externalAccountId])
+  @@unique([id, workspaceId])
+  @@index([workspaceId, status])
+  @@index([platformId])
+  @@map("social_accounts")
+}
+
+model SocialToken {
+  id                     String    @id @default(cuid())
+  socialAccountId        String    @unique @map("social_account_id")
+  accessTokenEncrypted   String    @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted  String?   @map("refresh_token_encrypted") @db.Text
+  accessTokenExpiresAt   DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt  DateTime? @map("refresh_token_expires_at")
+  scopes                 String?   @map("scopes") @db.Text
+  lastRefreshAt          DateTime? @map("last_refresh_at")
+  lastError              String?   @map("last_error")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@map("social_tokens")
+}
+
+model OAuthAuthorizationAttempt {
+  id           String    @id @default(cuid())
+  nonce        String    @unique
+  userId       String    @map("user_id")
+  workspaceId  String    @map("workspace_id")
+  provider     String    @map("provider") // "YOUTUBE", "TIKTOK", "INSTAGRAM"
+  codeVerifier String?   @map("code_verifier")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  expiresAt    DateTime  @map("expires_at")
+  consumedAt   DateTime? @map("consumed_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId])
+  @@index([expiresAt])
+  @@map("oauth_authorization_attempts")
+}
+
+
+// ------------------------------------------------------------------------------
+// Content & Asset Management
+// ------------------------------------------------------------------------------
+
+model Content {
+  id          String        @id @default(cuid())
+  workspaceId String        @map("workspace_id")
+  title       String
+  description String?       @db.Text
+  caption     String?       @db.Text
+  status      ContentStatus @default(DRAFT)
+  publishedAt DateTime?     @map("published_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assets      ContentAsset[]
+  platforms   ContentPlatform[]
+  categories  ContentCategory[]
+  hashtags    ContentHashtag[]
+  aiInsights  AIInsight[]
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("contents")
+}
+
+model ContentAsset {
+  id              String   @id @default(cuid())
+  contentId       String   @map("content_id")
+  storageKey      String   @map("storage_key")
+  mimeType        String   @map("mime_type")
+  fileSize        BigInt   @map("file_size")
+  width           Int?
+  height          Int?
+  durationSeconds Int?     @map("duration_seconds")
+  checksum        String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([contentId])
+  @@map("content_assets")
+}
+
+model ContentPlatform {
+  id                String                @id @default(cuid())
+  contentId         String                @map("content_id")
+  socialAccountId   String                @map("social_account_id")
+  externalContentId String?               @map("external_content_id")
+  externalUrl       String?               @map("external_url")
+  status            ContentPlatformStatus @default(PENDING)
+  scheduledAt       DateTime?             @map("scheduled_at")
+  publishedAt       DateTime?             @map("published_at")
+  metadata          Json?                 @map("metadata")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  content         Content                 @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount           @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  snapshots       ContentMetricSnapshot[]
+  publishingJobs  PublishingJob[]
+  comments        Comment[]
+
+  @@unique([contentId, socialAccountId])
+  @@unique([socialAccountId, externalContentId])
+  @@index([socialAccountId, publishedAt(sort: Desc)])
+  @@index([status, scheduledAt])
+  @@map("content_platforms")
+}
+
+// ------------------------------------------------------------------------------
+// Historical Metric Snapshots (Strict Nullable Policy: NULL != 0)
+// ------------------------------------------------------------------------------
+
+model ContentMetricSnapshot {
+  id                String   @id @default(cuid())
+  contentPlatformId String   @map("content_platform_id")
+  socialAccountId   String   @map("social_account_id")
+  capturedAt        DateTime @default(now()) @map("captured_at")
+  views             BigInt?
+  likes             BigInt?
+  comments          BigInt?
+  shares            BigInt?
+  saves             BigInt?
+  followersGained   BigInt?  @map("followers_gained")
+  engagementRate    Decimal? @map("engagement_rate") @db.Decimal(8, 4)
+
+  contentPlatform ContentPlatform @relation(fields: [contentPlatformId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount   @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([contentPlatformId, capturedAt(sort: Desc)])
+  @@index([socialAccountId, capturedAt(sort: Desc)])
+  @@map("content_metric_snapshots")
+}
+
+model AccountMetricSnapshot {
+  id               String   @id @default(cuid())
+  socialAccountId  String   @map("social_account_id")
+  capturedAt       DateTime @default(now()) @map("captured_at")
+  followersCount   BigInt?  @map("followers_count")
+  followingCount   BigInt?  @map("following_count")
+  totalLikes       BigInt?  @map("total_likes")
+  totalVideos      BigInt?  @map("total_videos")
+  totalViews       BigInt?  @map("total_views")
+  subscribersGained BigInt? @map("subscribers_gained")
+  subscribersLost  BigInt?  @map("subscribers_lost")
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([socialAccountId, capturedAt(sort: Desc)])
+  @@map("account_metric_snapshots")
+}
+
+model AudienceMetricSnapshot {
+  id                  String   @id @default(cuid())
+  socialAccountId     String   @map("social_account_id")
+  capturedAt          DateTime @default(now()) @map("captured_at")
+  period              String   @default("day") // "day", "7days", "28days", "month"
+  countryDistribution Json?    @map("country_distribution")
+  genderDistribution  Json?    @map("gender_distribution")
+  ageDistribution     Json?    @map("age_distribution")
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([socialAccountId, capturedAt(sort: Desc)])
+  @@map("audience_metric_snapshots")
+}
+
+// ------------------------------------------------------------------------------
+// Multi-Platform Creator Analytics Telemetry (Phase 3.3C)
+// ------------------------------------------------------------------------------
+
+model AnalyticsObservation {
+  id                String            @id @default(cuid())
+  workspaceId       String            @map("workspace_id")
+  socialAccountId   String            @map("social_account_id")
+  externalAccountId String?           @map("external_account_id")
+  externalContentId String?           @map("external_content_id")
+
+  provider          String            @map("provider") // "YOUTUBE", "TIKTOK", "INSTAGRAM"
+  source            MetricSource      @default(ANALYTICS_API) @map("source")
+  queryPattern      String            @map("query_pattern") // "CHANNEL_DAILY_OVERVIEW", "TOP_VIDEOS_PERFORMANCE", etc.
+  granularity       MetricGranularity @default(DAILY) @map("granularity")
+
+  startDate         DateTime          @map("start_date") @db.Date
+  endDate           DateTime          @map("end_date") @db.Date
+  observationDate   DateTime?         @map("observation_date") @db.Date
+
+  identityKey       String            @map("identity_key") @db.Text
+  identityHash      String            @unique @map("identity_hash") @db.VarChar(64)
+
+  dimensions        Json?             @map("dimensions")
+  metrics           Json              @map("metrics")
+
+  views                   BigInt?
+  estimatedMinutesWatched BigInt?   @map("estimated_minutes_watched")
+  averageViewDuration     Int?      @map("average_view_duration")
+  averageViewPercentage   Decimal?  @map("average_view_percentage") @db.Decimal(5, 2)
+  likes                   BigInt?
+  comments                BigInt?
+  shares                  BigInt?
+  saves                   BigInt?
+  subscribersGained       BigInt?   @map("subscribers_gained")
+  subscribersLost         BigInt?   @map("subscribers_lost")
+  engagementRate          Decimal?  @map("engagement_rate") @db.Decimal(8, 4)
+
+  capturedAt        DateTime          @default(now()) @map("captured_at")
+  syncJobId         String?           @map("sync_job_id")
+  dataLagDays       Int?              @map("data_lag_days")
+
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [socialAccountId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  syncJob       SyncJob?      @relation(fields: [syncJobId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, socialAccountId, queryPattern, observationDate(sort: Desc)])
+  @@index([workspaceId, externalContentId, observationDate(sort: Desc)])
+  @@index([workspaceId, socialAccountId, granularity, startDate, endDate])
+  @@index([socialAccountId, capturedAt(sort: Desc)])
+  @@map("analytics_observations")
+}
+
+// ------------------------------------------------------------------------------
+// Background Jobs & Execution State
+// ------------------------------------------------------------------------------
+
+model PublishingJob {
+  id                         String           @id @default(cuid())
+  contentPlatformId          String           @map("content_platform_id")
+  idempotencyKey             String           @unique @map("idempotency_key")
+  status                     JobStatus        @default(PENDING)
+  publishingStatus           PublishingStatus @default(QUEUED) @map("publishing_status")
+  attempts                   Int              @default(0)
+  storageKey                 String?          @map("storage_key")
+  uploadSessionUrlEncrypted  String?          @map("upload_session_url_encrypted") @db.Text
+  bytesUploaded              BigInt           @default(0) @map("bytes_uploaded")
+  totalBytes                 BigInt?          @map("total_bytes")
+  thumbnailStatus            String           @default("NONE") @map("thumbnail_status")
+  scheduledAt                DateTime?        @map("scheduled_at")
+  startedAt                  DateTime?        @map("started_at")
+  completedAt                DateTime?        @map("completed_at")
+  errorCode                  String?          @map("error_code")
+  errorMessage               String?          @map("error_message") @db.Text
+  metadata                   Json?            @map("metadata")
+  createdAt                  DateTime         @default(now()) @map("created_at")
+
+  contentPlatform ContentPlatform @relation(fields: [contentPlatformId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+  @@index([publishingStatus, scheduledAt])
+  @@map("publishing_jobs")
+}
+
+model SyncJob {
+  id              String    @id @default(cuid())
+  socialAccountId String    @map("social_account_id")
+  jobType         String    @map("job_type") // SYNC_ACCOUNT, SYNC_CONTENT, SYNC_METRICS, SYNC_COMMENTS, SYNC_ANALYTICS
+  status          JobStatus @default(PENDING)
+  attempts        Int       @default(0)
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  errorCode       String?   @map("error_code")
+  errorMessage    String?   @map("error_message") @db.Text
+  metadata        Json?     @map("metadata")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  analyticsObservations AnalyticsObservation[]
+
+  @@index([socialAccountId, status])
+  @@map("sync_jobs")
+}
+
+model DistributedLock {
+  key        String    @id @db.VarChar(255)
+  token      String    @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at")
+  ownerInfo  String?   @map("owner_info") @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("distributed_locks")
+}
+
+// ------------------------------------------------------------------------------
+// Comments, Taxonomies & AI Insights
+// ------------------------------------------------------------------------------
+
+model Comment {
+  id                String   @id @default(cuid())
+  contentPlatformId String   @map("content_platform_id")
+  externalCommentId String   @map("external_comment_id")
+  authorExternalId  String?  @map("author_external_id")
+  authorName        String?  @map("author_name")
+  body              String   @db.Text
+  publishedAt       DateTime? @map("published_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  contentPlatform ContentPlatform   @relation(fields: [contentPlatformId], references: [id], onDelete: Cascade)
+  analysis        CommentAnalysis?
+
+  @@index([contentPlatformId, publishedAt(sort: Desc)])
+  @@map("comments")
+}
+
+model CommentAnalysis {
+  id         String   @id @default(cuid())
+  commentId  String   @unique @map("comment_id")
+  sentiment  String?  // POSITIVE, NEUTRAL, NEGATIVE
+  topic      String?
+  language   String?
+  confidence Decimal? @db.Decimal(5, 4)
+  model      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("comment_analyses")
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  name        String
+  slug        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contents  ContentCategory[]
+
+  @@unique([workspaceId, slug])
+  @@map("categories")
+}
+
+model ContentCategory {
+  id         String @id @default(cuid())
+  contentId  String @map("content_id")
+  categoryId String @map("category_id")
+
+  content  Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, categoryId])
+  @@map("content_categories")
+}
+
+model Hashtag {
+  id        String   @id @default(cuid())
+  value     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contents ContentHashtag[]
+
+  @@map("hashtags")
+}
+
+model ContentHashtag {
+  id        String @id @default(cuid())
+  contentId String @map("content_id")
+  hashtagId String @map("hashtag_id")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  hashtag Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, hashtagId])
+  @@map("content_hashtags")
+}
+
+model AIInsight {
+  id            String   @id @default(cuid())
+  contentId     String?  @map("content_id")
+  type          String   // SUMMARY, CAPTION_SUGGESTION, HOOK, PERFORMANCE_ANALYSIS
+  title         String   @db.Text
+  body          String   @db.Text
+  model         String
+  promptVersion String   @map("prompt_version")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  content Content? @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([contentId])
+  @@map("ai_insights")
+}
